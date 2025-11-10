@@ -1,0 +1,101 @@
+name: Lambda CI & Deployment
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Select environment"
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  ci-checks:
+    name: Run Prettier, ESLint, License
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run Prettier check
+        run: npm run format
+
+
+
+  deploy:
+    name: Deploy to AWS Lambda
+    needs: ci-checks
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Zip Lambda function
+        run: |
+         ENV=${{ github.event.inputs.env }}
+          if [ "$ENV" = "dev" ]; then
+           cd dist/dev
+           zip -r ../../dev.zip .
+          else
+           cd dist/qa
+           zip -r ../../qa.zip .
+          fi
+
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1  
+
+      - name: Deploy to Lambda
+        run: |
+         ENV=${{ github.event.inputs.env }}
+         if [ "$ENV" = "dev" ]; then
+          aws lambda update-function-code \
+          --function-name Emerald-on-prem-presign-s3-qa \
+          --zip-file fileb://dev.zip
+         else
+          aws lambda update-function-code \
+          --function-name Emerald-on-prem-presign-s3-qa \
+          --zip-file fileb://qa.zip
+         fi
