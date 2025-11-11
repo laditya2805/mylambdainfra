@@ -1,62 +1,63 @@
-// package.json deps:
-//   "@aws-sdk/client-s3": "^3.x"
-//   "@aws-sdk/s3-request-presigner": "^3.x"
+import {
+  S3Client,
+  ListObjectsV2Command,
+  GetObjectCommand,
+} from '@aws-sdk/client-s3'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-import { S3Client, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+const s3 = new S3Client({})
+const BUCKET = 'dev-aditya-280595' // set QA bucket if different
+const PREFIX = '' // e.g., 'qa-builds/'
+const EXPIRES_SECONDS = 7 * 24 * 60 * 60
 
-const s3 = new S3Client({});
-const BUCKET = "dev-aditya-280595";  // TODO: set QA bucket
-const PREFIX = "";                      // e.g., "qa-builds/"
-const EXPIRES_SECONDS = 7 * 24 * 60 * 60;
+const sprintStart = 2
 
-// Oldest visible item will be labeled as this sprint number.
-// Example: if you currently keep sprints 2..5, set sprintStart=2.
-const sprintStart = 2;
-
-export const handler = async (event, context) => {
-  // Collect all objects (handle pagination)
-  const objects = [];
-  let ContinuationToken;
+export const handler = async (event: unknown, context: unknown) => {
+  const objects: Array<{ Key?: string; Size?: number; LastModified?: Date }> = []
+  let ContinuationToken: string | undefined
 
   do {
     const resp = await s3.send(
       new ListObjectsV2Command({
         Bucket: BUCKET,
         Prefix: PREFIX,
-        ContinuationToken
+        ContinuationToken,
       })
-    );
-    if (resp.Contents) objects.push(...resp.Contents);
-    ContinuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined;
-  } while (ContinuationToken);
+    )
+    if (resp.Contents) {
+      objects.push(...resp.Contents)
+    }
+    ContinuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined
+  } while (ContinuationToken)
 
-  // Filter out "folders" (zero-size prefixes) if needed
-  const files = objects.filter(o => o.Key && (!o.Key.endsWith("/") || (o.Size ?? 0) > 0));
+  const files = objects.filter(
+    (o) => o.Key && (!o.Key.endsWith('/') || (o.Size ?? 0) > 0)
+  )
 
   if (files.length === 0) {
     return {
       statusCode: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
-      body: "<html><body><h1>No builds found</h1></body></html>"
-    };
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      body: '<html><body><h1>No builds found</h1></body></html>',
+    }
   }
 
-  // Sort newest first
-  files.sort((a, b) => new Date(b.LastModified).getTime() - new Date(a.LastModified).getTime());
+  files.sort(
+    (a, b) =>
+      new Date(b.LastModified ?? 0).getTime() - new Date(a.LastModified ?? 0).getTime()
+  )
 
-  // Map to sprint labels: oldest gets sprintStart, then increment
-  const oldestFirst = [...files].reverse();
-  const labelsByKey = new Map();
+  const oldestFirst = [...files].reverse()
+  const labelsByKey = new Map<string, string>()
   oldestFirst.forEach((obj, idx) => {
-    labelsByKey.set(obj.Key, `Sprint: ${sprintStart + idx}`);
-  });
+    if (obj.Key) {
+      labelsByKey.set(obj.Key, `Sprint: ${sprintStart + idx}`)
+    }
+  })
 
-  // Single global latest (newest)
-  const newest = files[0];
-  const newestKey = newest.Key;
+  const newest = files[0]
+  const newestKey = newest.Key
 
-  // Build HTML
   let html = `
 <!DOCTYPE html>
 <html>
@@ -80,35 +81,36 @@ export const handler = async (event, context) => {
 <body>
   <h1>📦 QA Builds</h1>
   <p>Newest first. Labels reflect sprint order.</p>
-`;
+`
 
   for (const obj of files) {
-    const key = obj.Key;
-    const dt = new Date(obj.LastModified).toISOString().replace("T", " ").slice(0, 16) + " UTC";
-    const isLatest = key === newestKey;
+    const key = obj.Key ?? ''
+    const dt =
+      new Date(obj.LastModified ?? 0).toISOString().replace('T', ' ').slice(0, 16) +
+      ' UTC'
+    const isLatest = key === newestKey
 
-    // Presign
     const url = await getSignedUrl(
       s3,
       new GetObjectCommand({ Bucket: BUCKET, Key: key }),
       { expiresIn: EXPIRES_SECONDS }
-    );
+    )
 
-    const css = isLatest ? "version-item latest" : "version-item";
-    const badge = isLatest ? `<span class="badge">LATEST</span>` : "";
-    const sprintLabel = labelsByKey.get(key) ?? "";
+    const css = isLatest ? 'version-item latest' : 'version-item'
+    const badge = isLatest ? '<span class="badge">LATEST</span>' : ''
+    const sprintLabel = labelsByKey.get(key) ?? ''
 
     html += `
     <div class="${css}">
       <div class="info">
-        <div class="file-name">${key.split("/").pop()} ${badge}</div>
+        <div class="file-name">${key.split('/').pop() ?? ''} ${badge}</div>
         <div class="file-date">📅 ${dt} | ${sprintLabel}</div>
       </div>
       <a class="button" href="${url}">
         <button>⬇️ Download</button>
       </a>
     </div>
-`;
+`
   }
 
   html += `
@@ -117,11 +119,11 @@ export const handler = async (event, context) => {
   </p>
 </body>
 </html>
-`;
+`
 
   return {
     statusCode: 200,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-    body: html
-  };
-};
+    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    body: html,
+  }
+}
