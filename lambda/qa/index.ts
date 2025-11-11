@@ -12,8 +12,14 @@ const EXPIRES_SECONDS = 7 * 24 * 60 * 60
 
 const sprintStart = 2
 
+type ObjItem = {
+  Key?: string
+  Size?: number
+  LastModified?: Date
+}
+
 export const handler = async (event: unknown, context: unknown) => {
-  const objects: Array<{ Key?: string; Size?: number; LastModified?: Date }> = []
+  const objects: ObjItem[] = []
   let ContinuationToken: string | undefined
 
   do {
@@ -27,7 +33,9 @@ export const handler = async (event: unknown, context: unknown) => {
     if (resp.Contents) {
       objects.push(...resp.Contents)
     }
-    ContinuationToken = resp.IsTruncated ? resp.NextContinuationToken : undefined
+    ContinuationToken = resp.IsTruncated
+      ? resp.NextContinuationToken
+      : undefined
   } while (ContinuationToken)
 
   const files = objects.filter(
@@ -44,14 +52,16 @@ export const handler = async (event: unknown, context: unknown) => {
 
   files.sort(
     (a, b) =>
-      new Date(b.LastModified ?? 0).getTime() - new Date(a.LastModified ?? 0).getTime()
+      new Date(b.LastModified ?? 0).getTime() -
+      new Date(a.LastModified ?? 0).getTime()
   )
 
   const oldestFirst = [...files].reverse()
   const labelsByKey = new Map<string, string>()
   oldestFirst.forEach((obj, idx) => {
-    if (obj.Key) {
-      labelsByKey.set(obj.Key, `Sprint: ${sprintStart + idx}`)
+    const k = obj.Key
+    if (k) {
+      labelsByKey.set(k, `Sprint: ${sprintStart + idx}`)
     }
   })
 
@@ -86,24 +96,30 @@ export const handler = async (event: unknown, context: unknown) => {
   for (const obj of files) {
     const key = obj.Key ?? ''
     const dt =
-      new Date(obj.LastModified ?? 0).toISOString().replace('T', ' ').slice(0, 16) +
-      ' UTC'
+      new Date(obj.LastModified ?? 0)
+        .toISOString()
+        .replace('T', ' ')
+        .slice(0, 16) + ' UTC'
     const isLatest = key === newestKey
 
     const url = await getSignedUrl(
       s3,
-      new GetObjectCommand({ Bucket: BUCKET, Key: key }),
+      new GetObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+      }),
       { expiresIn: EXPIRES_SECONDS }
     )
 
     const css = isLatest ? 'version-item latest' : 'version-item'
     const badge = isLatest ? '<span class="badge">LATEST</span>' : ''
+    const fileName = key.split('/').pop() ?? ''
     const sprintLabel = labelsByKey.get(key) ?? ''
 
     html += `
     <div class="${css}">
       <div class="info">
-        <div class="file-name">${key.split('/').pop() ?? ''} ${badge}</div>
+        <div class="file-name">${fileName} ${badge}</div>
         <div class="file-date">📅 ${dt} | ${sprintLabel}</div>
       </div>
       <a class="button" href="${url}">

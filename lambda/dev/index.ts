@@ -1,16 +1,22 @@
-import { S3Client, ListObjectVersionsCommand, GetObjectCommand } from '@aws-sdk/client-s3'
+import {
+  S3Client,
+  ListObjectVersionsCommand,
+  GetObjectCommand,
+} from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 const s3 = new S3Client({})
 const BUCKET = 'dev-aditya-280595'
 const PREFIX = ''
 
+type ObjVersion = {
+  Key?: string
+  VersionId?: string
+  LastModified?: Date
+}
+
 export const handler = async (event: unknown, context: unknown) => {
-  const versions: Array<{
-    Key?: string
-    VersionId?: string
-    LastModified?: Date
-  }> = []
+  const versions: ObjVersion[] = []
   let KeyMarker: string | undefined
   let VersionIdMarker: string | undefined
 
@@ -26,6 +32,7 @@ export const handler = async (event: unknown, context: unknown) => {
     if (resp.Versions) {
       versions.push(...resp.Versions)
     }
+
     KeyMarker = resp.IsTruncated ? resp.NextKeyMarker : undefined
     VersionIdMarker = resp.IsTruncated ? resp.NextVersionIdMarker : undefined
   } while (KeyMarker && VersionIdMarker)
@@ -40,12 +47,13 @@ export const handler = async (event: unknown, context: unknown) => {
 
   versions.sort(
     (a, b) =>
-      new Date(b.LastModified ?? 0).getTime() - new Date(a.LastModified ?? 0).getTime()
+      new Date(b.LastModified ?? 0).getTime() -
+      new Date(a.LastModified ?? 0).getTime()
   )
 
   const globalLatest = versions[0]
-  const latestKey = globalLatest.Key
-  const latestVid = globalLatest.VersionId
+  const latestKey = globalLatest.Key ?? ''
+  const latestVid = globalLatest.VersionId ?? ''
 
   let html = `
 <!DOCTYPE html>
@@ -76,7 +84,10 @@ export const handler = async (event: unknown, context: unknown) => {
     const key = v.Key ?? ''
     const vid = v.VersionId ?? ''
     const dt =
-      new Date(v.LastModified ?? 0).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+      new Date(v.LastModified ?? 0)
+        .toISOString()
+        .replace('T', ' ')
+        .slice(0, 16) + ' UTC'
 
     const isGlobalLatest = key === latestKey && vid === latestVid
 
@@ -92,13 +103,13 @@ export const handler = async (event: unknown, context: unknown) => {
 
     const css = isGlobalLatest ? 'version-item latest' : 'version-item'
     const badge = isGlobalLatest ? '<span class="badge">LATEST</span>' : ''
-    const shortVid = vid && vid.length > 13 ? vid.slice(0, 10) + '...' : vid || ''
+    const shortVid = vid && vid.length > 13 ? vid.slice(0, 10) + '...' : vid
 
     html += `
     <div class="${css}">
       <div class="info">
         <div class="file-name">${key}${badge}</div>
-        <div class="file-date">📅 ${dt} | Version: ${shortVid}</div>
+        <div class="file-date">📅 ${dt} | Version: ${shortVid ?? ''}</div>
       </div>
       <a class="button" href="${url}">
         <button>⬇️ Download</button>
