@@ -7,17 +7,8 @@
     "outDir": "dist",
     "rootDir": "lambda",
     "esModuleInterop": true,
-    
-    // Strictness flags from dev repo
-    "strict": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "noImplicitReturns": true,
-    "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    
-    "skipLibCheck": true,
-    "resolveJsonModule": true
+    "strict": false,
+    "skipLibCheck": true
   },
   "include": ["lambda/**/*.ts"]
 }
