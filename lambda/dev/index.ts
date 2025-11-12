@@ -16,15 +16,11 @@ type ObjVersion = {
   LastModified?: Date
 }
 
-// Helpers
 const toUTC = (d: Date | undefined): string =>
-  new Date(d ?? 0)
-    .toISOString()
-    .replace('T', ' ')
-    .slice(0, 16) + ' UTC'
+  new Date(d ?? 0).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
 
 const baseName = (key: string): string =>
-  key.includes('/') ? key.split('/').pop() ?? key : key
+  key.includes('/') ? (key.split('/').pop() ?? key) : key
 
 export const handler = async () => {
   if (!BUCKET) {
