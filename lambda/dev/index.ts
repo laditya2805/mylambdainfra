@@ -2,12 +2,13 @@ import {
   S3Client,
   ListObjectVersionsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 const s3 = new S3Client({})
-const BUCKET = 'dev-aditya-280595'
-const PREFIX = ''
+const BUCKET = process.env.BUCKET_NAME
+const PREFIX = process.env.PREFIX || ''
 
 type ObjVersion = {
   Key?: string
@@ -15,28 +16,35 @@ type ObjVersion = {
   LastModified?: Date
 }
 
-export const handler = async (event: unknown, context: unknown) => {
-  const versions: ObjVersion[] = []
-  let KeyMarker: string | undefined
-  let VersionIdMarker: string | undefined
+// Helpers
+const toUTC = (d: Date | undefined): string =>
+  new Date(d ?? 0)
+    .toISOString()
+    .replace('T', ' ')
+    .slice(0, 16) + ' UTC'
 
-  do {
-    const resp = await s3.send(
-      new ListObjectVersionsCommand({
-        Bucket: BUCKET,
-        Prefix: PREFIX,
-        KeyMarker,
-        VersionIdMarker,
-      })
-    )
-    if (resp.Versions) {
-      versions.push(...resp.Versions)
+const baseName = (key: string): string =>
+  key.includes('/') ? key.split('/').pop() ?? key : key
+
+export const handler = async () => {
+  if (!BUCKET) {
+    return {
+      statusCode: 500,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      body: '<html><body><h1>Configuration Error: BUCKET_NAME not set</h1></body></html>',
     }
+  }
 
-    KeyMarker = resp.IsTruncated ? resp.NextKeyMarker : undefined
-    VersionIdMarker = resp.IsTruncated ? resp.NextVersionIdMarker : undefined
-  } while (KeyMarker && VersionIdMarker)
+  // Get all object versions
+  const resp = await s3.send(
+    new ListObjectVersionsCommand({
+      Bucket: BUCKET,
+      Prefix: PREFIX,
+    })
+  )
+  const versions: ObjVersion[] = resp.Versions || []
 
+  // Defensive: empty bucket/prefix
   if (versions.length === 0) {
     return {
       statusCode: 200,
@@ -45,12 +53,14 @@ export const handler = async (event: unknown, context: unknown) => {
     }
   }
 
+  // Newest first
   versions.sort(
     (a, b) =>
       new Date(b.LastModified ?? 0).getTime() -
       new Date(a.LastModified ?? 0).getTime()
   )
 
+  // Latest version across everything
   const globalLatest = versions[0]
   const latestKey = globalLatest.Key ?? ''
   const latestVid = globalLatest.VersionId ?? ''
@@ -69,9 +79,10 @@ export const handler = async (event: unknown, context: unknown) => {
     .info { flex-grow: 1; }
     .file-name { font-weight: bold; color: #333; }
     .file-date { color: #666; font-size: 13px; margin-top: 4px; }
-    .badge { background: #28a745; color: white; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px; }
+    .commit-info { color: #555; font-size: 12px; margin-top: 4px; font-style: italic; }
+    .badge { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px; }
     a.button { text-decoration: none; }
-    button { padding: 9px 16px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+    button { padding: 9px 16px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
     button:hover { background: #0056b3; }
   </style>
 </head>
@@ -80,17 +91,32 @@ export const handler = async (event: unknown, context: unknown) => {
   <p>All versions sorted by date (newest first)</p>
 `
 
+  // Render each version
   for (const v of versions) {
     const key = v.Key ?? ''
+    const name = baseName(key)
     const vid = v.VersionId ?? ''
-    const dt =
-      new Date(v.LastModified ?? 0)
-        .toISOString()
-        .replace('T', ' ')
-        .slice(0, 16) + ' UTC'
+    const dt = toUTC(v.LastModified)
 
     const isGlobalLatest = key === latestKey && vid === latestVid
 
+    // Fetch commit message (if metadata present)
+    let commitMsg = ''
+    try {
+      const head = await s3.send(
+        new HeadObjectCommand({
+          Bucket: BUCKET,
+          Key: key,
+          VersionId: vid,
+        })
+      )
+      commitMsg = head.Metadata?.['commit-message'] || ''
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e)
+      console.log('HeadObject metadata fetch failed:', errMsg)
+    }
+
+    // Presigned URL for this exact version
     const url = await getSignedUrl(
       s3,
       new GetObjectCommand({
@@ -108,8 +134,9 @@ export const handler = async (event: unknown, context: unknown) => {
     html += `
     <div class="${css}">
       <div class="info">
-        <div class="file-name">${key}${badge}</div>
-        <div class="file-date">📅 ${dt} | Version: ${shortVid ?? ''}</div>
+        <div class="file-name">${name}${badge}</div>
+        <div class="file-date">📅 ${dt} | Version: ${shortVid}</div>
+        ${commitMsg ? `<div class="commit-info">💬 ${commitMsg}</div>` : ''}
       </div>
       <a class="button" href="${url}">
         <button>⬇️ Download</button>
