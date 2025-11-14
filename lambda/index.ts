@@ -57,7 +57,7 @@ export const handler = async () => {
   const latestVid = globalLatest.VersionId ?? ''
 
   const pageTitle =
-    ENVIRONMENT === 'qa' ? '📦 QA Builds' : '📦 Download Builds'
+    ENVIRONMENT === 'qa' ? ' QA Builds' : ' Download Builds'
 
   let html = `
 <!DOCTYPE html>
