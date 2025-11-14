@@ -64,7 +64,7 @@ export const handler = async () => {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>${pageTitle}</title>
+  <title>📦 ${pageTitle}</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
     h1 { color: #333; }
