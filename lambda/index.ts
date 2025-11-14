@@ -64,7 +64,7 @@ export const handler = async () => {
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>📦 ${pageTitle}</title>
+  <title> ${pageTitle}</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
     h1 { color: #333; }
@@ -81,7 +81,7 @@ export const handler = async () => {
   </style>
 </head>
 <body>
-  <h1>${pageTitle}</h1>
+  <h1>📦 ${pageTitle}</h1>
   <p>All versions sorted by date (newest first)</p>
 `
 
