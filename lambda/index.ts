@@ -1,13 +1,22 @@
+/*
+ * © 2025 Merck KGaA, Darmstadt, Germany and/or its affiliates. All rights reserved.
+ */
+
 import {
   S3Client,
   ListObjectVersionsCommand,
   GetObjectCommand,
-  HeadObjectCommand,
+  GetObjectTaggingCommand
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
+enum Environment {
+  DEV = 'dev',
+  QA = 'qa'
+}
+
 const s3 = new S3Client({})
-const ENVIRONMENT = process.env.ENVIRONMENT || 'dev'
+const ENVIRONMENT = (process.env.ENVIRONMENT as Environment) || Environment.DEV
 const BUCKET = process.env.BUCKET_NAME
 
 type ObjVersion = {
@@ -27,13 +36,13 @@ export const handler = async () => {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<html><body><h1>Configuration Error: BUCKET_NAME not set</h1></body></html>',
+      body: '<html><body><h1>Configuration Error: BUCKET_NAME not set</h1></body></html>'
     }
   }
 
   const resp = await s3.send(
     new ListObjectVersionsCommand({
-      Bucket: BUCKET,
+      Bucket: BUCKET
     })
   )
   const versions: ObjVersion[] = resp.Versions || []
@@ -42,7 +51,7 @@ export const handler = async () => {
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<html><body><h1>No files found</h1></body></html>',
+      body: '<html><body><h1>No files found</h1></body></html>'
     }
   }
 
@@ -57,14 +66,14 @@ export const handler = async () => {
   const latestVid = globalLatest.VersionId ?? ''
 
   const pageTitle =
-    ENVIRONMENT === 'qa' ? ' QA Builds' : ' Download Builds'
+    ENVIRONMENT === Environment.QA ? 'QA Builds' : 'Download Builds'
 
   let html = `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8">
-  <title> ${pageTitle}</title>
+  <title>${pageTitle}</title>
   <style>
     body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
     h1 { color: #333; }
@@ -95,19 +104,20 @@ export const handler = async () => {
     const isGlobalLatest = key === latestKey && vid === latestVid
 
     let commitMsg = ''
-    if (ENVIRONMENT === 'dev') {
+    if (ENVIRONMENT === Environment.DEV) {
       try {
-        const head = await s3.send(
-          new HeadObjectCommand({
+        const tagsResp = await s3.send(
+          new GetObjectTaggingCommand({
             Bucket: BUCKET,
             Key: key,
-            VersionId: vid,
+            VersionId: vid
           })
         )
-        commitMsg = head.Metadata?.['commit-message'] || ''
+        const commitTag = tagsResp.TagSet?.find(t => t.Key === 'commit-message')
+        commitMsg = commitTag?.Value || ''
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e)
-        console.log('HeadObject metadata fetch failed:', errMsg)
+        console.log('GetObjectTagging failed:', errMsg)
       }
     }
 
@@ -116,7 +126,7 @@ export const handler = async () => {
       new GetObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        VersionId: vid,
+        VersionId: vid
       }),
       { expiresIn: 7 * 24 * 60 * 60 }
     )
@@ -126,7 +136,7 @@ export const handler = async () => {
 
     const sprintNumber = versions.length - i + 1
     const versionLabel =
-      ENVIRONMENT === 'qa'
+      ENVIRONMENT === Environment.QA
         ? `Sprint: ${sprintNumber}`
         : `Version: ${vid.slice(0, 10)}...`
 
@@ -155,6 +165,6 @@ export const handler = async () => {
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    body: html,
+    body: html
   }
 }
