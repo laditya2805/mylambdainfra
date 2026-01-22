@@ -6,13 +6,13 @@ import {
   S3Client,
   ListObjectVersionsCommand,
   GetObjectCommand,
-  GetObjectTaggingCommand
+  GetObjectTaggingCommand,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 enum Environment {
   DEV = 'dev',
-  QA = 'qa'
+  QA = 'qa',
 }
 
 const s3 = new S3Client({})
@@ -36,13 +36,13 @@ export const handler = async () => {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<html><body><h1>Configuration Error: BUCKET_NAME not set</h1></body></html>'
+      body: '<html><body><h1>Configuration Error: BUCKET_NAME not set</h1></body></html>',
     }
   }
 
   const resp = await s3.send(
     new ListObjectVersionsCommand({
-      Bucket: BUCKET
+      Bucket: BUCKET,
     })
   )
   const versions: ObjVersion[] = resp.Versions || []
@@ -51,7 +51,7 @@ export const handler = async () => {
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<html><body><h1>No files found</h1></body></html>'
+      body: '<html><body><h1>No files found</h1></body></html>',
     }
   }
 
@@ -110,10 +110,12 @@ export const handler = async () => {
           new GetObjectTaggingCommand({
             Bucket: BUCKET,
             Key: key,
-            VersionId: vid
+            VersionId: vid,
           })
         )
-        const commitTag = tagsResp.TagSet?.find(t => t.Key === 'commit-message')
+        const commitTag = tagsResp.TagSet?.find(
+          (t) => t.Key === 'commit-message'
+        )
         commitMsg = commitTag?.Value || ''
       } catch (e) {
         const errMsg = e instanceof Error ? e.message : String(e)
@@ -126,7 +128,7 @@ export const handler = async () => {
       new GetObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        VersionId: vid
+        VersionId: vid,
       }),
       { expiresIn: 7 * 24 * 60 * 60 }
     )
@@ -135,9 +137,18 @@ export const handler = async () => {
     const badge = isGlobalLatest ? '<span class="badge">LATEST</span>' : ''
 
     const sprintNumber = versions.length - i + 1
+    let sprintLabel = sprintNumber.toString()
+// Adjust for Sprint 8A/8B split (only affects positions 8 and 9)
+    if (sprintNumber === 8) {
+      sprintLabel = '8A'
+    } else if (sprintNumber === 9) {
+      sprintLabel = '8B'
+    } else if (sprintNumber >= 10) {
+      sprintLabel = (sprintNumber - 1).toString()
+    }
     const versionLabel =
       ENVIRONMENT === Environment.QA
-        ? `Sprint: ${sprintNumber}`
+        ? `Sprint: ${sprintLabel}`
         : `Version: ${vid.slice(0, 10)}...`
 
     html += `
@@ -165,6 +176,6 @@ export const handler = async () => {
   return {
     statusCode: 200,
     headers: { 'Content-Type': 'text/html; charset=utf-8' },
-    body: html
+    body: html,
   }
 }
