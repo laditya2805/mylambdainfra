@@ -31,6 +31,25 @@ const toUTC = (d: Date | undefined): string =>
 const baseName = (key: string): string =>
   key.includes('/') ? (key.split('/').pop() ?? key) : key
 
+// NEW: Read QA sprint overrides from env var
+// Example: QA_SPRINT_OVERRIDES = "8:8A,9:8B"
+const getQaSprintOverrides = (): Map<number, string> => {
+  const raw = process.env.QA_SPRINT_OVERRIDES
+  const map = new Map<number, string>()
+
+  if (!raw) return map
+
+  raw.split(',').forEach(pair => {
+    const [num, label] = pair.split(':')
+    const n = Number(num)
+    if (!isNaN(n) && label) {
+      map.set(n, label)
+    }
+  })
+
+  return map
+}
+
 export const handler = async () => {
   if (!BUCKET) {
     return {
@@ -94,6 +113,8 @@ export const handler = async () => {
   <p>All versions sorted by date (newest first)</p>
 `
 
+  const qaSprintOverrides = getQaSprintOverrides() // NEW
+
   for (let i = 0; i < versions.length; i++) {
     const v = versions[i]
     const key = v.Key ?? ''
@@ -136,16 +157,21 @@ export const handler = async () => {
     const css = isGlobalLatest ? 'version-item latest' : 'version-item'
     const badge = isGlobalLatest ? '<span class="badge">LATEST</span>' : ''
 
+    // NEW: QA sprint override logic
     const sprintNumber = versions.length - i + 1
     let sprintLabel = sprintNumber.toString()
-// Adjust for Sprint 8A/8B split (only affects positions 8 and 9)
-    if (sprintNumber === 8) {
-      sprintLabel = '8A'
-    } else if (sprintNumber === 9) {
-      sprintLabel = '8B'
-    } else if (sprintNumber >= 10) {
-      sprintLabel = (sprintNumber - 1).toString()
+
+    if (ENVIRONMENT === Environment.QA) {
+      if (qaSprintOverrides.has(sprintNumber)) {
+        sprintLabel = qaSprintOverrides.get(sprintNumber)!
+      } else if (qaSprintOverrides.size > 0) {
+        const maxOverride = Math.max(...qaSprintOverrides.keys())
+        if (sprintNumber > maxOverride) {
+          sprintLabel = (sprintNumber - qaSprintOverrides.size).toString()
+        }
+      }
     }
+
     const versionLabel =
       ENVIRONMENT === Environment.QA
         ? `Sprint: ${sprintLabel}`
