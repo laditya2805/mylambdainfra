@@ -35,18 +35,15 @@ const baseName = (key: string): string =>
    QA Sprint Override Utilities
    ------------------------------------------------------------------ */
 
-/**
- * Reads sprint overrides from environment variable.
- * Example:
- * QA_SPRINT_OVERRIDES = "8:8A,9:8B"
- */
 const loadQaSprintOverrides = (): Map<number, string> => {
   const raw = process.env.QA_SPRINT_OVERRIDES
   const overrides = new Map<number, string>()
 
-  if (!raw) return overrides
+  if (!raw) {
+    return overrides
+  }
 
-  raw.split(',').forEach(entry => {
+  raw.split(',').forEach((entry) => {
     const [num, label] = entry.split(':')
     const sprintIndex = Number(num)
 
@@ -58,36 +55,24 @@ const loadQaSprintOverrides = (): Map<number, string> => {
   return overrides
 }
 
-/**
- * Determines whether a base sprint should be hidden.
- * Example:
- * Sprint 8 must be hidden when 8A / 8B exist.
- */
 const shouldHideBaseSprint = (
   sprintIndex: number,
   overrides: Map<number, string>
 ): boolean => {
   return overrides.has(sprintIndex)
 }
-
-/**
- * Resolves the final sprint label for QA environment.
- */
 const resolveQaSprintLabel = (
   sprintIndex: number,
   overrides: Map<number, string>
 ): string | null => {
-  // If sprint is explicitly overridden (8 → 8A, 9 → 8B)
   if (overrides.has(sprintIndex)) {
     return overrides.get(sprintIndex)!
   }
 
-  // If sprint is the base sprint that got split, hide it
   if (shouldHideBaseSprint(sprintIndex - 1, overrides)) {
     return null
   }
 
-  // Shift sprint numbers after the split
   const overrideCount = overrides.size
   if (overrideCount > 0) {
     const highestOverride = Math.max(...overrides.keys())
@@ -112,10 +97,7 @@ export const handler = async () => {
     }
   }
 
-  const resp = await s3.send(
-    new ListObjectVersionsCommand({ Bucket: BUCKET })
-  )
-
+  const resp = await s3.send(new ListObjectVersionsCommand({ Bucket: BUCKET }))
   const versions: ObjVersion[] = resp.Versions || []
 
   if (versions.length === 0) {
@@ -174,8 +156,7 @@ export const handler = async () => {
     const fileName = baseName(key)
     const modifiedAt = toUTC(v.LastModified)
 
-    const isLatest =
-      key === latestKey && versionId === latestVersionId
+    const isLatest = key === latestKey && versionId === latestVersionId
 
     let commitMessage = ''
     if (ENVIRONMENT === Environment.DEV) {
@@ -189,7 +170,7 @@ export const handler = async () => {
         )
 
         commitMessage =
-          tagResp.TagSet?.find(t => t.Key === 'commit-message')?.Value || ''
+          tagResp.TagSet?.find((t) => t.Key === 'commit-message')?.Value || ''
       } catch (err) {
         console.log('GetObjectTagging failed:', err)
       }
@@ -209,12 +190,8 @@ export const handler = async () => {
     let sprintLabel: string | null = null
 
     if (ENVIRONMENT === Environment.QA) {
-      sprintLabel = resolveQaSprintLabel(
-        sprintIndex,
-        qaSprintOverrides
-      )
+      sprintLabel = resolveQaSprintLabel(sprintIndex, qaSprintOverrides)
 
-      // Skip base sprint that got split (e.g., Sprint 8)
       if (!sprintLabel) {
         continue
       }
