@@ -31,24 +31,77 @@ const toUTC = (d: Date | undefined): string =>
 const baseName = (key: string): string =>
   key.includes('/') ? (key.split('/').pop() ?? key) : key
 
-// NEW: Read QA sprint overrides from env var
-// Example: QA_SPRINT_OVERRIDES = "8:8A,9:8B"
-const getQaSprintOverrides = (): Map<number, string> => {
+/* ------------------------------------------------------------------
+   QA Sprint Override Utilities
+   ------------------------------------------------------------------ */
+
+/**
+ * Reads sprint overrides from environment variable.
+ * Example:
+ * QA_SPRINT_OVERRIDES = "8:8A,9:8B"
+ */
+const loadQaSprintOverrides = (): Map<number, string> => {
   const raw = process.env.QA_SPRINT_OVERRIDES
-  const map = new Map<number, string>()
+  const overrides = new Map<number, string>()
 
-  if (!raw) return map
+  if (!raw) return overrides
 
-  raw.split(',').forEach(pair => {
-    const [num, label] = pair.split(':')
-    const n = Number(num)
-    if (!isNaN(n) && label) {
-      map.set(n, label)
+  raw.split(',').forEach(entry => {
+    const [num, label] = entry.split(':')
+    const sprintIndex = Number(num)
+
+    if (!isNaN(sprintIndex) && label) {
+      overrides.set(sprintIndex, label)
     }
   })
 
-  return map
+  return overrides
 }
+
+/**
+ * Determines whether a base sprint should be hidden.
+ * Example:
+ * Sprint 8 must be hidden when 8A / 8B exist.
+ */
+const shouldHideBaseSprint = (
+  sprintIndex: number,
+  overrides: Map<number, string>
+): boolean => {
+  return overrides.has(sprintIndex)
+}
+
+/**
+ * Resolves the final sprint label for QA environment.
+ */
+const resolveQaSprintLabel = (
+  sprintIndex: number,
+  overrides: Map<number, string>
+): string | null => {
+  // If sprint is explicitly overridden (8 → 8A, 9 → 8B)
+  if (overrides.has(sprintIndex)) {
+    return overrides.get(sprintIndex)!
+  }
+
+  // If sprint is the base sprint that got split, hide it
+  if (shouldHideBaseSprint(sprintIndex - 1, overrides)) {
+    return null
+  }
+
+  // Shift sprint numbers after the split
+  const overrideCount = overrides.size
+  if (overrideCount > 0) {
+    const highestOverride = Math.max(...overrides.keys())
+    if (sprintIndex > highestOverride) {
+      return String(sprintIndex - overrideCount)
+    }
+  }
+
+  return String(sprintIndex)
+}
+
+/* ------------------------------------------------------------------
+   Lambda Handler
+   ------------------------------------------------------------------ */
 
 export const handler = async () => {
   if (!BUCKET) {
@@ -60,10 +113,9 @@ export const handler = async () => {
   }
 
   const resp = await s3.send(
-    new ListObjectVersionsCommand({
-      Bucket: BUCKET,
-    })
+    new ListObjectVersionsCommand({ Bucket: BUCKET })
   )
+
   const versions: ObjVersion[] = resp.Versions || []
 
   if (versions.length === 0) {
@@ -80,12 +132,14 @@ export const handler = async () => {
       new Date(a.LastModified ?? 0).getTime()
   )
 
-  const globalLatest = versions[0]
-  const latestKey = globalLatest.Key ?? ''
-  const latestVid = globalLatest.VersionId ?? ''
+  const latest = versions[0]
+  const latestKey = latest.Key ?? ''
+  const latestVersionId = latest.VersionId ?? ''
 
   const pageTitle =
     ENVIRONMENT === Environment.QA ? 'QA Builds' : 'Download Builds'
+
+  const qaSprintOverrides = loadQaSprintOverrides()
 
   let html = `
 <!DOCTYPE html>
@@ -113,78 +167,75 @@ export const handler = async () => {
   <p>All versions sorted by date (newest first)</p>
 `
 
-  const qaSprintOverrides = getQaSprintOverrides() // NEW
-
   for (let i = 0; i < versions.length; i++) {
     const v = versions[i]
     const key = v.Key ?? ''
-    const name = baseName(key)
-    const vid = v.VersionId ?? ''
-    const dt = toUTC(v.LastModified)
+    const versionId = v.VersionId ?? ''
+    const fileName = baseName(key)
+    const modifiedAt = toUTC(v.LastModified)
 
-    const isGlobalLatest = key === latestKey && vid === latestVid
+    const isLatest =
+      key === latestKey && versionId === latestVersionId
 
-    let commitMsg = ''
+    let commitMessage = ''
     if (ENVIRONMENT === Environment.DEV) {
       try {
-        const tagsResp = await s3.send(
+        const tagResp = await s3.send(
           new GetObjectTaggingCommand({
             Bucket: BUCKET,
             Key: key,
-            VersionId: vid,
+            VersionId: versionId,
           })
         )
-        const commitTag = tagsResp.TagSet?.find(
-          (t) => t.Key === 'commit-message'
-        )
-        commitMsg = commitTag?.Value || ''
-      } catch (e) {
-        const errMsg = e instanceof Error ? e.message : String(e)
-        console.log('GetObjectTagging failed:', errMsg)
+
+        commitMessage =
+          tagResp.TagSet?.find(t => t.Key === 'commit-message')?.Value || ''
+      } catch (err) {
+        console.log('GetObjectTagging failed:', err)
       }
     }
 
-    const url = await getSignedUrl(
+    const downloadUrl = await getSignedUrl(
       s3,
       new GetObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        VersionId: vid,
+        VersionId: versionId,
       }),
       { expiresIn: 7 * 24 * 60 * 60 }
     )
 
-    const css = isGlobalLatest ? 'version-item latest' : 'version-item'
-    const badge = isGlobalLatest ? '<span class="badge">LATEST</span>' : ''
-
-    // NEW: QA sprint override logic
-    const sprintNumber = versions.length - i + 1
-    let sprintLabel = sprintNumber.toString()
+    const sprintIndex = versions.length - i + 1
+    let sprintLabel: string | null = null
 
     if (ENVIRONMENT === Environment.QA) {
-      if (qaSprintOverrides.has(sprintNumber)) {
-        sprintLabel = qaSprintOverrides.get(sprintNumber)!
-      } else if (qaSprintOverrides.size > 0) {
-        const maxOverride = Math.max(...qaSprintOverrides.keys())
-        if (sprintNumber > maxOverride) {
-          sprintLabel = (sprintNumber - qaSprintOverrides.size).toString()
-        }
+      sprintLabel = resolveQaSprintLabel(
+        sprintIndex,
+        qaSprintOverrides
+      )
+
+      // Skip base sprint that got split (e.g., Sprint 8)
+      if (!sprintLabel) {
+        continue
       }
     }
 
     const versionLabel =
       ENVIRONMENT === Environment.QA
         ? `Sprint: ${sprintLabel}`
-        : `Version: ${vid.slice(0, 10)}...`
+        : `Version: ${versionId.slice(0, 10)}...`
+
+    const cssClass = isLatest ? 'version-item latest' : 'version-item'
+    const latestBadge = isLatest ? '<span class="badge">LATEST</span>' : ''
 
     html += `
-    <div class="${css}">
+    <div class="${cssClass}">
       <div class="info">
-        <div class="file-name">${name}${badge}</div>
-        <div class="file-date">📅 ${dt} | ${versionLabel}</div>
-        ${commitMsg ? `<div class="commit-info">💬 ${commitMsg}</div>` : ''}
+        <div class="file-name">${fileName}${latestBadge}</div>
+        <div class="file-date">📅 ${modifiedAt} | ${versionLabel}</div>
+        ${commitMessage ? `<div class="commit-info">💬 ${commitMessage}</div>` : ''}
       </div>
-      <a class="button" href="${url}">
+      <a class="button" href="${downloadUrl}">
         <button>⬇️ Download</button>
       </a>
     </div>
