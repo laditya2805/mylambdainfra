@@ -25,11 +25,11 @@ type ObjVersion = {
   LastModified?: Date
 }
 
-const toUTC = (d: Date | undefined): string =>
+const toUTC = (d?: Date): string =>
   new Date(d ?? 0).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
 
 const baseName = (key: string): string =>
-  key.includes('/') ? (key.split('/').pop() ?? key) : key
+  key.includes('/') ? key.split('/').pop() || key : key
 
 /* ---------- QA Sprint Overrides ----------
   Example:
@@ -39,16 +39,15 @@ const baseName = (key: string): string =>
 const loadQaSprintOverrides = (): Map<number, string> => {
   const raw = process.env.QA_SPRINT_OVERRIDES
   const map = new Map<number, string>()
-
   if (!raw) {
     return map
   }
 
   raw.split(',').forEach((entry) => {
     const [num, label] = entry.split(':')
-    const index = Number(num)
-    if (!Number.isNaN(index) && label) {
-      map.set(index, label)
+    const idx = Number(num)
+    if (!Number.isNaN(idx) && label) {
+      map.set(idx, label)
     }
   })
 
@@ -60,7 +59,7 @@ export const handler = async () => {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<html><body><h1>Configuration Error: BUCKET_NAME not set</h1></body></html>',
+      body: '<html><body><h1>BUCKET_NAME not set</h1></body></html>',
     }
   }
 
@@ -68,25 +67,22 @@ export const handler = async () => {
 
   const versions: ObjVersion[] = resp.Versions || []
 
-  if (versions.length === 0) {
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<html><body><h1>No files found</h1></body></html>',
-    }
-  }
-
   versions.sort(
     (a, b) =>
       new Date(b.LastModified ?? 0).getTime() -
       new Date(a.LastModified ?? 0).getTime()
   )
 
-  const globalLatest = versions[0]
-  const latestKey = globalLatest.Key ?? ''
-  const latestVid = globalLatest.VersionId ?? ''
+  const latest = versions[0]
+  const latestKey = latest?.Key ?? ''
+  const latestVid = latest?.VersionId ?? ''
 
-  const qaSprintOverrides = loadQaSprintOverrides()
+  const qaOverrides = loadQaSprintOverrides()
+  const overrideKeys = [...qaOverrides.keys()]
+  const firstOverride = overrideKeys.length
+    ? Math.min(...overrideKeys)
+    : Infinity
+  const overrideCount = overrideKeys.length
 
   const pageTitle =
     ENVIRONMENT === Environment.QA ? 'QA Builds' : 'Download Builds'
@@ -95,53 +91,59 @@ export const handler = async () => {
 <!DOCTYPE html>
 <html>
 <head>
- <meta charset="UTF-8">
- <title>${pageTitle}</title>
- <style>
-   body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
-   h1 { color: #333; }
-   .version-item { background: #f5f5f5; padding: 12px 14px; margin: 10px 0; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
-   .latest { background: #d4edda; border: 2px solid #28a745; }
-   .info { flex-grow: 1; }
-   .file-name { font-weight: bold; color: #333; }
-   .file-date { color: #666; font-size: 13px; margin-top: 4px; }
-   .commit-info { color: #555; font-size: 12px; margin-top: 4px; font-style: italic; }
-   .badge { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px; }
-   a.button { text-decoration: none; }
-   button { padding: 9px 16px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-   button:hover { background: #0056b3; }
- </style>
+<meta charset="UTF-8">
+<title>${pageTitle}</title>
+<style>
+body { font-family: Arial; max-width: 900px; margin: 40px auto; padding: 20px; }
+.version-item { background: #f5f5f5; padding: 12px; margin: 10px 0; border-radius: 6px; display: flex; justify-content: space-between; }
+.latest { background: #d4edda; border: 2px solid #28a745; }
+.badge { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px; }
+button { padding: 8px 14px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+</style>
 </head>
 <body>
- <h1>📦 ${pageTitle}</h1>
- <p>All versions sorted by date (newest first)</p>
+<h1>📦 ${pageTitle}</h1>
+<p>All versions sorted by date (newest first)</p>
 `
 
   for (let i = 0; i < versions.length; i++) {
     const v = versions[i]
     const key = v.Key ?? ''
-    const name = baseName(key)
     const vid = v.VersionId ?? ''
-    const dt = toUTC(v.LastModified)
+    const name = baseName(key)
+    const date = toUTC(v.LastModified)
 
-    const isGlobalLatest = key === latestKey && vid === latestVid
+    const isLatest = key === latestKey && vid === latestVid
+    const sprintIndex = versions.length - i + 1
+
+    let sprintLabel: string
+
+    if (ENVIRONMENT === Environment.QA) {
+      if (qaOverrides.has(sprintIndex)) {
+        sprintLabel = qaOverrides.get(sprintIndex)!
+      } else if (sprintIndex > firstOverride) {
+        sprintLabel = String(sprintIndex - (overrideCount - 1))
+      } else {
+        sprintLabel = String(sprintIndex)
+      }
+    } else {
+      sprintLabel = vid.slice(0, 10)
+    }
 
     let commitMsg = ''
-    if (ENVIRONMENT === Environment.DEV) {
+    if (ENVIRONMENT === Environment.DEV && vid) {
       try {
-        const tagsResp = await s3.send(
+        const tags = await s3.send(
           new GetObjectTaggingCommand({
             Bucket: BUCKET,
             Key: key,
             VersionId: vid,
           })
         )
-        const commitTag = tagsResp.TagSet?.find(
-          (t) => t.Key === 'commit-message'
-        )
-        commitMsg = commitTag?.Value || ''
-      } catch {
-        // ignore
+        commitMsg =
+          tags.TagSet?.find((t) => t.Key === 'commit-message')?.Value || ''
+      } catch (err) {
+        console.error('Error fetching commit message:', err)
       }
     }
 
@@ -155,51 +157,19 @@ export const handler = async () => {
       { expiresIn: 7 * 24 * 60 * 60 }
     )
 
-    const sprintIndex = versions.length - i + 1
-
-    let sprintLabel = String(sprintIndex)
-
-    if (ENVIRONMENT === Environment.QA) {
-      let shift = 0
-      for (const k of qaSprintOverrides.keys()) {
-        if (k < sprintIndex) {
-          shift++
-        }
-      }
-
-      if (qaSprintOverrides.has(sprintIndex)) {
-        sprintLabel = qaSprintOverrides.get(sprintIndex)!
-      } else {
-        sprintLabel = String(sprintIndex - shift)
-      }
-    }
-
-    const versionLabel =
-      ENVIRONMENT === Environment.QA
-        ? `Sprint: ${sprintLabel}`
-        : `Version: ${vid.slice(0, 10)}...`
-
-    const css = isGlobalLatest ? 'version-item latest' : 'version-item'
-    const badge = isGlobalLatest ? '<span class="badge">LATEST</span>' : ''
-
     html += `
-   <div class="${css}">
-     <div class="info">
-       <div class="file-name">${name}${badge}</div>
-       <div class="file-date">📅 ${dt} | ${versionLabel}</div>
-       ${commitMsg ? `<div class="commit-info">💬 ${commitMsg}</div>` : ''}
-     </div>
-     <a class="button" href="${url}">
-       <button>⬇️ Download</button>
-     </a>
-   </div>
+<div class="version-item ${isLatest ? 'latest' : ''}">
+ <div>
+   <strong>${name}</strong>${isLatest ? '<span class="badge">LATEST</span>' : ''}
+   <div>📅 ${date} | Sprint: ${sprintLabel}</div>
+   ${commitMsg ? `<div>${commitMsg}</div>` : ''}
+ </div>
+ <a href="${url}"><button>⬇️ Download</button></a>
+</div>
 `
   }
 
   html += `
- <p style="color: gray; margin-top: 30px; text-align: center;">
-   All download links are valid for 7 days
- </p>
 </body>
 </html>
 `
