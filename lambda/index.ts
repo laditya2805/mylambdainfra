@@ -5,7 +5,6 @@
 import {
   S3Client,
   ListObjectVersionsCommand,
-  ListObjectsV2Command,
   GetObjectCommand,
   GetObjectTaggingCommand,
 } from '@aws-sdk/client-s3'
@@ -28,13 +27,19 @@ type ObjVersion = {
   LastModified?: Date
 }
 
+/* -------------------- helpers -------------------- */
+
 const toUTC = (d?: Date): string =>
   new Date(d ?? 0).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
 
 const baseName = (key: string): string =>
   key.includes('/') ? key.split('/').pop() || key : key
 
-/* -------- QA sprint override helpers ------------ */
+/* -------------------- QA override helpers -------------------- */
+/*
+ Example:
+ QA_SPRINT_OVERRIDES=8:8A,9:8B
+*/
 
 const loadQaSprintOverrides = (): Map<number, string> => {
   const raw = process.env.QA_SPRINT_OVERRIDES
@@ -56,26 +61,33 @@ const loadQaSprintOverrides = (): Map<number, string> => {
   return map
 }
 
+/*
+ IMPORTANT:
+ - Never hide anything
+ - Only rename and shift numbering AFTER overrides
+*/
 const resolveQaSprintLabel = (
   sprintIndex: number,
   overrides: Map<number, string>
-): string | null => {
+): string => {
+  // Direct rename (8 → 8A, 9 → 8B)
   if (overrides.has(sprintIndex)) {
     return overrides.get(sprintIndex)!
   }
 
-  if (overrides.has(sprintIndex - 1)) {
-    return null
+  if (overrides.size === 0) {
+    return String(sprintIndex)
   }
 
+  const maxOverride = Math.max(...overrides.keys())
   const shift = overrides.size
-  if (shift > 0) {
-    const maxOverride = Math.max(...overrides.keys())
-    if (sprintIndex > maxOverride) {
-      return String(sprintIndex - shift)
-    }
+
+  // Shift numbering only AFTER last override
+  if (sprintIndex > maxOverride) {
+    return String(sprintIndex - shift)
   }
 
+  // Normal numbering before overrides
   return String(sprintIndex)
 }
 
@@ -90,27 +102,9 @@ export const handler = async () => {
     }
   }
 
-  /* -------- fetch S3 objects -------- */
+  const resp = await s3.send(new ListObjectVersionsCommand({ Bucket: BUCKET }))
 
-  const versionResp = await s3.send(
-    new ListObjectVersionsCommand({ Bucket: BUCKET })
-  )
-  const versionedObjects: ObjVersion[] = versionResp.Versions || []
-
-  const objectResp = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET }))
-  const currentObjects: ObjVersion[] =
-    objectResp.Contents?.map((o) => ({
-      Key: o.Key,
-      LastModified: o.LastModified,
-      VersionId: undefined,
-    })) || []
-
-  const versions: ObjVersion[] = [
-    ...versionedObjects,
-    ...currentObjects.filter(
-      (o) => !versionedObjects.some((v) => v.Key === o.Key)
-    ),
-  ]
+  const versions: ObjVersion[] = resp.Versions || []
 
   if (versions.length === 0) {
     return {
@@ -130,11 +124,10 @@ export const handler = async () => {
   const latestKey = latest.Key ?? ''
   const latestVersionId = latest.VersionId ?? ''
 
-  const qaSprintOverrides = loadQaSprintOverrides()
   const pageTitle =
     ENVIRONMENT === Environment.QA ? 'QA Builds' : 'Download Builds'
 
-  /* -------- HTML header -------- */
+  const qaSprintOverrides = loadQaSprintOverrides()
 
   let html = `
 <!DOCTYPE html>
@@ -155,8 +148,6 @@ export const handler = async () => {
 <p>All versions sorted by date (newest first)</p>
 `
 
-  /* -------- render builds -------- */
-
   for (let i = 0; i < versions.length; i++) {
     const v = versions[i]
     const key = v.Key ?? ''
@@ -165,15 +156,13 @@ export const handler = async () => {
     const date = toUTC(v.LastModified)
 
     const isLatest = key === latestKey && versionId === latestVersionId
+
     const sprintIndex = versions.length - i + 1
 
-    let sprintLabel: string | null = null
-    if (ENVIRONMENT === Environment.QA) {
-      sprintLabel = resolveQaSprintLabel(sprintIndex, qaSprintOverrides)
-      if (!sprintLabel) {
-        continue
-      }
-    }
+    const sprintLabel =
+      ENVIRONMENT === Environment.QA
+        ? resolveQaSprintLabel(sprintIndex, qaSprintOverrides)
+        : `Version: ${versionId.slice(0, 10)}`
 
     let commitMsg = ''
     if (ENVIRONMENT === Environment.DEV && versionId) {
@@ -197,7 +186,7 @@ export const handler = async () => {
       new GetObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        VersionId: versionId || undefined,
+        VersionId: versionId,
       }),
       { expiresIn: 7 * 24 * 60 * 60 }
     )
@@ -205,14 +194,8 @@ export const handler = async () => {
     html += `
 <div class="version-item ${isLatest ? 'latest' : ''}">
  <div>
-   <strong>${name}</strong>${
-     isLatest ? '<span class="badge">LATEST</span>' : ''
-   }
-   <div>📅 ${date} | ${
-     ENVIRONMENT === Environment.QA
-       ? `Sprint: ${sprintLabel}`
-       : `Version: ${versionId.slice(0, 10)}`
-   }</div>
+   <strong>${name}</strong>${isLatest ? '<span class="badge">LATEST</span>' : ''}
+   <div>📅 ${date} | Sprint: ${sprintLabel}</div>
    ${commitMsg ? `<div>${commitMsg}</div>` : ''}
  </div>
  <a href="${url}"><button>⬇️ Download</button></a>
