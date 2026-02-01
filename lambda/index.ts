@@ -64,22 +64,22 @@ const resolveQaSprintLabel = (
   if (overrides.has(sprintIndex)) {
     return overrides.get(sprintIndex)!
   }
-  
+
   // Count how many overridden sprints come BEFORE this sprint
-  let overriddenBefore = 0;
+  let overriddenBefore = 0
   for (const [overrideSprint] of overrides) {
     if (overrideSprint < sprintIndex) {
-      overriddenBefore++;
+      overriddenBefore++
     }
   }
-  
+
   // Apply compression to numbering after overrides
   if (overriddenBefore > 0) {
     // Each group of consecutive overrides reduces the count by (overriddenBefore - 1)
-    return String(sprintIndex - (overriddenBefore - 1));
+    return String(sprintIndex - (overriddenBefore - 1))
   }
-  
-  return String(sprintIndex);
+
+  return String(sprintIndex)
 }
 
 /* -------------------- handler -------------------- */
@@ -151,7 +151,6 @@ export const handler = async () => {
    .latest { background: #d4edda; border: 2px solid #28a745; }
    .badge { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px; }
    button { padding: 8px 14px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-   .sprint-info { margin-top: 5px; color: #666; font-size: 14px; }
  </style>
 </head>
 <body>
@@ -169,7 +168,7 @@ export const handler = async () => {
     const date = toUTC(v.LastModified)
 
     const isLatest = key === latestKey && versionId === latestVersionId
-    
+
     // Sprint index calculation: newest = highest number
     // If there are 9 builds, newest = sprint 10, oldest = sprint 2
     const sprintIndex = versions.length - i + 1
@@ -215,13 +214,11 @@ export const handler = async () => {
    <strong>${name}</strong>${
      isLatest ? '<span class="badge">LATEST</span>' : ''
    }
-   <div class="sprint-info">
-     📅 ${date} | ${
-       ENVIRONMENT === Environment.QA
-         ? `Sprint: ${sprintLabel}`
-         : `Version: ${versionId.slice(0, 10)}`
-     }
-   </div>
+   <div>📅 ${date} | ${
+     ENVIRONMENT === Environment.QA
+       ? `Sprint: ${sprintLabel}`
+       : `Version: ${versionId.slice(0, 10)}`
+   }</div>
    ${commitMsg ? `<div>${commitMsg}</div>` : ''}
  </div>
  <a href="${url}"><button>⬇️ Download</button></a>
