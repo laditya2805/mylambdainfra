@@ -10,8 +10,6 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-/* -------------------- config -------------------- */
-
 enum Environment {
   DEV = 'dev',
   QA = 'qa',
@@ -27,19 +25,18 @@ type ObjVersion = {
   LastModified?: Date
 }
 
-/* -------------------- helpers -------------------- */
+/* ---------------- helpers ---------------- */
 
 const toUTC = (d?: Date): string =>
   new Date(d ?? 0).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
 
 const baseName = (key: string): string =>
-  key.includes('/') ? key.split('/').pop() || key : key
+  key.includes('/') ? (key.split('/').pop() ?? key) : key
 
-/* -------- QA sprint override helpers ------------ */
-/*
-Example:
-QA_SPRINT_OVERRIDES=8:8A,9:8B
-*/
+/* -------- QA sprint overrides --------
+  Example:
+  QA_SPRINT_OVERRIDES=8:8A,9:8B
+-------------------------------------- */
 
 const loadQaSprintOverrides = (): Map<number, string> => {
   const raw = process.env.QA_SPRINT_OVERRIDES
@@ -51,10 +48,9 @@ const loadQaSprintOverrides = (): Map<number, string> => {
 
   raw.split(',').forEach((entry) => {
     const [num, label] = entry.split(':')
-    const index = Number(num)
-
-    if (!Number.isNaN(index) && label) {
-      map.set(index, label)
+    const idx = Number(num)
+    if (!Number.isNaN(idx) && label) {
+      map.set(idx, label)
     }
   })
 
@@ -62,39 +58,30 @@ const loadQaSprintOverrides = (): Map<number, string> => {
 }
 
 const resolveQaSprintLabel = (
-  sprintIndex: number,
+  rawSprint: number,
   overrides: Map<number, string>
 ): string => {
-  // Exact override (8 → 8A, 9 → 8B)
-  if (overrides.has(sprintIndex)) {
-    return overrides.get(sprintIndex)!
+  // Direct override (8 → 8A, 9 → 8B)
+  if (overrides.has(rawSprint)) {
+    return overrides.get(rawSprint)!
   }
 
-  // Shift numbering AFTER overrides
-  const sortedKeys = Array.from(overrides.keys()).sort((a, b) => a - b)
-  let shift = 0
+  // Shift numbering after overridden sprints
+  const shift = Array.from(overrides.keys()).filter((k) => k < rawSprint).length
 
-  for (const k of sortedKeys) {
-    if (sprintIndex > k) {
-      shift++
-    }
-  }
-
-  return String(sprintIndex - shift)
+  return String(rawSprint - shift)
 }
 
-/* -------------------- handler -------------------- */
+/* ---------------- handler ---------------- */
 
 export const handler = async () => {
   if (!BUCKET) {
     return {
       statusCode: 500,
       headers: { 'Content-Type': 'text/html; charset=utf-8' },
-      body: '<html><body><h1>BUCKET_NAME not set</h1></body></html>',
+      body: '<html><body><h1>Configuration Error: BUCKET_NAME not set</h1></body></html>',
     }
   }
-
-  /* -------- fetch versions -------- */
 
   const resp = await s3.send(new ListObjectVersionsCommand({ Bucket: BUCKET }))
 
@@ -114,73 +101,67 @@ export const handler = async () => {
       new Date(a.LastModified ?? 0).getTime()
   )
 
-  const latest = versions[0]
-  const latestKey = latest.Key ?? ''
-  const latestVersionId = latest.VersionId ?? ''
+  const globalLatest = versions[0]
+  const latestKey = globalLatest.Key ?? ''
+  const latestVid = globalLatest.VersionId ?? ''
 
   const qaSprintOverrides = loadQaSprintOverrides()
 
   const pageTitle =
     ENVIRONMENT === Environment.QA ? 'QA Builds' : 'Download Builds'
 
-  /* -------- HTML header -------- */
-
   let html = `
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>${pageTitle}</title>
-<style>
- body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
- .version-item { background: #f5f5f5; padding: 12px; margin: 10px 0; border-radius: 6px; display: flex; justify-content: space-between; }
- .latest { background: #d4edda; border: 2px solid #28a745; }
- .badge { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px; }
- button { padding: 8px 14px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-</style>
+ <meta charset="UTF-8">
+ <title>${pageTitle}</title>
+ <style>
+   body { font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; }
+   h1 { color: #333; }
+   .version-item { background: #f5f5f5; padding: 12px 14px; margin: 10px 0; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; }
+   .latest { background: #d4edda; border: 2px solid #28a745; }
+   .info { flex-grow: 1; }
+   .file-name { font-weight: bold; color: #333; }
+   .file-date { color: #666; font-size: 13px; margin-top: 4px; }
+   .commit-info { color: #555; font-size: 12px; margin-top: 4px; font-style: italic; }
+   .badge { background: #28a745; color: #fff; padding: 3px 8px; border-radius: 3px; font-size: 12px; margin-left: 8px; }
+   a.button { text-decoration: none; }
+   button { padding: 9px 16px; background: #007bff; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+   button:hover { background: #0056b3; }
+ </style>
 </head>
 <body>
-<h1>📦 ${pageTitle}</h1>
-<p>All versions sorted by date (newest first)</p>
+ <h1>📦 ${pageTitle}</h1>
+ <p>All versions sorted by date (newest first)</p>
 `
-
-  /* -------- render builds -------- */
 
   for (let i = 0; i < versions.length; i++) {
     const v = versions[i]
     const key = v.Key ?? ''
-    const versionId = v.VersionId ?? ''
     const name = baseName(key)
-    const date = toUTC(v.LastModified)
+    const vid = v.VersionId ?? ''
+    const dt = toUTC(v.LastModified)
 
-    const isLatest = key === latestKey && versionId === latestVersionId
-
-    const sprintIndex = versions.length - i
-
-    let labelText: string
-
-    if (ENVIRONMENT === Environment.QA) {
-      const sprintLabel = resolveQaSprintLabel(sprintIndex, qaSprintOverrides)
-      labelText = `Sprint: ${sprintLabel}`
-    } else {
-      // ✅ DEV LOGIC — UNTOUCHED
-      labelText = `Version: ${versionId.slice(0, 10)}`
-    }
+    const isGlobalLatest = key === latestKey && vid === latestVid
 
     let commitMsg = ''
-    if (ENVIRONMENT === Environment.DEV && versionId) {
+    if (ENVIRONMENT === Environment.DEV) {
       try {
-        const tags = await s3.send(
+        const tagsResp = await s3.send(
           new GetObjectTaggingCommand({
             Bucket: BUCKET,
             Key: key,
-            VersionId: versionId,
+            VersionId: vid,
           })
         )
-        commitMsg =
-          tags.TagSet?.find((t) => t.Key === 'commit-message')?.Value || ''
-      } catch {
-        // intentionally empty — original behavior
+        const commitTag = tagsResp.TagSet?.find(
+          (t) => t.Key === 'commit-message'
+        )
+        commitMsg = commitTag?.Value || ''
+      } catch (err) {
+        console.error('Error fetching commit message:', err)
+        // ignore tag errors (original behavior)
       }
     }
 
@@ -189,26 +170,44 @@ export const handler = async () => {
       new GetObjectCommand({
         Bucket: BUCKET,
         Key: key,
-        VersionId: versionId || undefined,
+        VersionId: vid,
       }),
       { expiresIn: 7 * 24 * 60 * 60 }
     )
 
+    const sprintIndex = versions.length - i + 1
+
+    let versionLabel: string
+
+    if (ENVIRONMENT === Environment.QA) {
+      const sprintLabel = resolveQaSprintLabel(sprintIndex, qaSprintOverrides)
+      versionLabel = `Sprint: ${sprintLabel}`
+    } else {
+      // DEV behavior — unchanged
+      versionLabel = `Version: ${vid.slice(0, 10)}...`
+    }
+
+    const css = isGlobalLatest ? 'version-item latest' : 'version-item'
+    const badge = isGlobalLatest ? '<span class="badge">LATEST</span>' : ''
+
     html += `
-<div class="version-item ${isLatest ? 'latest' : ''}">
- <div>
-   <strong>${name}</strong>${isLatest ? '<span class="badge">LATEST</span>' : ''}
-   <div>📅 ${date} | ${labelText}</div>
-   ${commitMsg ? `<div>${commitMsg}</div>` : ''}
- </div>
- <a href="${url}"><button>⬇️ Download</button></a>
-</div>
+   <div class="${css}">
+     <div class="info">
+       <div class="file-name">${name}${badge}</div>
+       <div class="file-date">📅 ${dt} | ${versionLabel}</div>
+       ${commitMsg ? `<div class="commit-info">💬 ${commitMsg}</div>` : ''}
+     </div>
+     <a class="button" href="${url}">
+       <button>⬇️ Download</button>
+     </a>
+   </div>
 `
   }
 
-  /* -------- footer -------- */
-
   html += `
+ <p style="color: gray; margin-top: 30px; text-align: center;">
+   All download links are valid for 7 days
+ </p>
 </body>
 </html>
 `
