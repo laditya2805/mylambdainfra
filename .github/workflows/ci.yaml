@@ -61,7 +61,7 @@ jobs:
          curl -X POST \
            -H "Content-Type: application/json" \
            -d '{"text":"✅ Teams notification test successful!\nTriggered from GitHub Actions 🚀"}' \
-           ${{ secrets.TEAMS_WEBHOOK_URL }}
+           ${{ vars.TEAMS_WEBHOOK_URL }}
 
      # ---------------------------
      # AWS LOGIN
