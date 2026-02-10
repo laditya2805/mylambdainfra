@@ -8,7 +8,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: '50 15 * * *' # Runs daily at midnight
+   - cron: '30 16 * * *' # Runs daily at midnight
 
 permissions:
   contents: read
