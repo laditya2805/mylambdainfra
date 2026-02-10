@@ -1,71 +1,89 @@
 name: Lambda CI & Deployment
 
 on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-  schedule:
-   - cron: '30 16 * * *' # Runs daily at midnight
+ push:
+   branches:
+     - main
+
+ pull_request:
+   branches:
+     - main
+
+ schedule:
+   - cron: '45 17 * * *'   # Daily at 16:30 UTC
 
 permissions:
-  contents: read
-  id-token: write
+ contents: read
+ id-token: write
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
-   # if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v5
+ deploy:
+   runs-on: ubuntu-latest
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+   steps:
+     - name: Checkout code
+       uses: actions/checkout@v5
 
-      - name: Install dependencies
-        run: npm install
+     - name: Setup Node.js
+       uses: actions/setup-node@v4
+       with:
+         node-version: 22
 
-      - name: Build TypeScript
-        run: npm run build
+     - name: Install dependencies
+       run: npm install
 
-      - name: Zip Lambda function
-        run: |
-          cd dist
-          zip -r ../lambda.zip .
-          cd ..
+     - name: Build TypeScript
+       run: npm run build
 
-      - name: Notify on Teams
-        run: |
+     - name: Zip Lambda function
+       run: |
+         cd dist
+         zip -r ../lambda.zip .
+         cd ..
+
+     # ---------------------------
+     # DEBUG SECRET
+     # ---------------------------
+     - name: Debug secrets
+       run: |
+         if [ -z "${{ secrets.TEAMS_WEBHOOK_URL }}" ]; then
+           echo "SECRET IS EMPTY"
+         else
+           echo "SECRET IS PRESENT"
+         fi
+
+     # ---------------------------
+     # TEAMS NOTIFICATION
+     # ---------------------------
+     - name: Notify on Teams
+       run: |
          echo "Webhook URL is set? -> ${TEAMS_WEBHOOK_URL:+YES}"
-         curl -v -X POST \
+         curl -X POST \
            -H "Content-Type: application/json" \
-           -d '{"text": "Lambda function deployment started for branch: main"}' \
+           -d '{"text":"✅ Teams notification test successful!\nTriggered from GitHub Actions 🚀"}' \
            ${{ secrets.TEAMS_WEBHOOK_URL }}
 
+     # ---------------------------
+     # AWS LOGIN
+     # ---------------------------
+     - name: Configure AWS credentials
+       uses: aws-actions/configure-aws-credentials@v4
+       with:
+         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+         aws-region: ap-south-1
 
+     # ---------------------------
+     # DEPLOY
+     # ---------------------------
+     - name: Deploy to Dev Lambda
+       run: |
+         aws lambda update-function-code \
+           --function-name gitcommitfunction \
+           --zip-file fileb://lambda.zip
 
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-south-1  
-
-
-      - name: Deploy to Dev Lambda
-        run: |
-          aws lambda update-function-code \
-            --function-name gitcommitfunction \
-            --zip-file fileb://lambda.zip
-
-      - name: Deploy to QA Lambda
-        run: |
-          aws lambda update-function-code \
-            --function-name Emerald-on-prem-presign-s3-qa \
-            --zip-file fileb://lambda.zip
+     - name: Deploy to QA Lambda
+       run: |
+         aws lambda update-function-code \
+           --function-name Emerald-on-prem-presign-s3-qa \
+           --zip-file fileb://lambda.zip
