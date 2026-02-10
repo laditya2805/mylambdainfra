@@ -41,11 +41,14 @@ jobs:
 
       - name: Notify on Teams
         run: |
-          echo "Webhook URL is set? -> ${TEAMS_WEBHOOK_URL:+YES}"
-          curl -v -X POST \
-        -H "Content-Type: application/json" \
-         -d '{"text":" GitHub Actions test message"}' \
-         "${{ secrets.TEAMS_WEBHOOK_URL }}"
+         echo "Webhook URL is set? -> ${TEAMS_WEBHOOK_URL:+YES}"
+         curl -v -X POST \
+           -H "Content-Type: application/json" \
+           -d '{"text": "Lambda function deployment started for branch: main"}' \
+           ${{ secrets.TEAMS_WEBHOOK_URL }}
+
+
+
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
