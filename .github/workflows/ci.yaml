@@ -10,7 +10,7 @@ on:
      - main
 
  schedule:
-   - cron: '45 17 * * *'   # Daily at 16:30 UTC
+   - cron: '10 19 * * *'   # Daily at 16:30 UTC
 
 permissions:
  contents: read
