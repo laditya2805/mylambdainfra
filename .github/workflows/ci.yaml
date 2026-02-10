@@ -8,7 +8,7 @@ on:
     branches:
       - main
   schedule:
-    - cron: '40 15 * * *' # Runs daily at midnight
+    - cron: '50 15 * * *' # Runs daily at midnight
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+   # if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -38,6 +38,15 @@ jobs:
           cd dist
           zip -r ../lambda.zip .
           cd ..
+
+      - name: Notify on Teams
+        run: |
+         curl -X POST \
+           -H "Content-Type: application/json" \
+           -d '{
+             "text": "✅ Teams notification test successful!\n\nTriggered from GitHub Actions 🚀"
+           }' \
+           ${{ secrets.TEAMS_WEBHOOK_URL }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
