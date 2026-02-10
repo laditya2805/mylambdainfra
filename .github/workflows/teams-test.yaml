@@ -1,0 +1,31 @@
+name: Teams Webhook Test
+
+on:
+ workflow_dispatch:
+ push:
+   branches:
+     - main
+
+jobs:
+ test-teams:
+   runs-on: ubuntu-latest
+
+   steps:
+     - name: Print runner info
+       run: uname -a
+
+     - name: Show variable length
+       run: |
+         echo "Length of webhook url:"
+         echo ${#TEAMS_WEBHOOK_URL}
+       env:
+         TEAMS_WEBHOOK_URL: ${{ vars.TEAMS_WEBHOOK_URL }}
+
+     - name: Call Teams Webhook
+       run: |
+         URL="${{ vars.TEAMS_WEBHOOK_URL }}"
+         echo "Calling webhook..."
+         curl -v -X POST \
+           -H "Content-Type: application/json" \
+           -d '{"text":"✅ Message from GitHub Actions"}' \
+           "$URL"
