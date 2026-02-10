@@ -57,10 +57,11 @@ jobs:
      # ---------------------------
      - name: Notify on Teams
        run: |
+         URL="${{ vars.TEAMS_WEBHOOK_URL }}"
          curl -v -X POST \
            -H "Content-Type: application/json" \
            -d '{"text":"Teams notification test successful!\nTriggered from GitHub Actions"}' \
-           ${{ vars.TEAMS_WEBHOOK_URL }}
+           $URL
 
      # ---------------------------
      # AWS LOGIN
