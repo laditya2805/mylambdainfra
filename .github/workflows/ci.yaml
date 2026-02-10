@@ -7,7 +7,7 @@ on:
    branches:
      - main
  schedule:
-   - cron: '*/3 * * * *'
+   - cron: '*/3 * * * *' #runs
 permissions:
  contents: read
  id-token: write
