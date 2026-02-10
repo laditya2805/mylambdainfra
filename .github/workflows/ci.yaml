@@ -59,7 +59,7 @@ jobs:
        run: |
          curl -v -X POST \
            -H "Content-Type: application/json" \
-           -d '{"text":"✅ Teams notification test successful!\nTriggered from GitHub Actions 🚀"}' \
+           -d '{"text":"Teams notification test successful!\nTriggered from GitHub Actions"}' \
            ${{ vars.TEAMS_WEBHOOK_URL }}
 
      # ---------------------------
