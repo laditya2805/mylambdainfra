@@ -2,6 +2,9 @@ name: Teams Webhook Test
 
 on:
  workflow_dispatch:
+ push:
+   branches:
+     - main
 
 jobs:
  test-teams:
@@ -21,8 +24,18 @@ jobs:
      - name: Call Teams Webhook
        run: |
          URL="${{ vars.TEAMS_WEBHOOK_URL }}"
-         echo "Calling webhook..."
-         curl -v -X POST \
+         ENV="qa"
+         EXECUTION_TYPE="Smoke"
+         STATUS="${{ job.status }}"
+         RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+         MESSAGE="### Emerald Automation Nightly Run
+         **Status:** ${STATUS}
+         **Environment:** ${ENV}
+         **Execution Type:** ${EXECUTION_TYPE}
+         **Run Link:** ${RUN_URL}"
+
+         curl -X POST \
            -H "Content-Type: application/json" \
-           -d '{"text":"✅ Message from GitHub Actions"}' \
+           -d "{\"text\": \"${MESSAGE}\"}" \
            "$URL"
