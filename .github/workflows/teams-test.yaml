@@ -26,11 +26,14 @@ jobs:
          STATUS="${{ job.status }}"
          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-         MESSAGE="### Emerald Automation Nightly Run \n
+         MESSAGE="$(cat << 'EOF'
+         ### Emerald Automation Nightly Run \n
          **Status:** ${STATUS} \n
          **Environment:** ${ENV} \n
          **Execution Type:** ${EXECUTION_TYPE} \n
          **Run Link:** ${RUN_URL}"
+         EOF
+         )
 
          PAYLOAD=$(jq -n --arg text "${MESSAGE}" '{text: $text}')
 
