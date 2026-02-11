@@ -19,11 +19,11 @@ jobs:
          echo "Length of webhook url:"
          echo ${#TEAMS_WEBHOOK_URL}
        env:
-         TEAMS_WEBHOOK_URL: ${{ vars.TEAMS_WEBHOOK_URL }}
+         TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
 
      - name: Call Teams Webhook
        run: |
-         URL="${{ vars.TEAMS_WEBHOOK_URL }}"
+         URL="${{ secrets.TEAMS_WEBHOOK_URL }}"
          ENV="qa"
          EXECUTION_TYPE="Smoke"
          STATUS="${{ job.status }}"
