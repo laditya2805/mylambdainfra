@@ -28,9 +28,13 @@ jobs:
 
          MESSAGE=$(cat << EOF
          ### Emerald Automation Run
+         
          **Status:** ${STATUS}
+         
          **Environment:** ${ENV}
+         
          **Execution Type:** ${EXECUTION_TYPE}
+         
          **Run Link:** ${RUN_URL}
          EOF
          )
