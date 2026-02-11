@@ -27,10 +27,14 @@ jobs:
          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
          MESSAGE=$(cat << EOF
-         ### Emerald Automation Nightly Run \n
-         **Status:** ${STATUS} \n
-         **Environment:** ${ENV} \n
-         **Execution Type:** ${EXECUTION_TYPE} \n
+         ### Emerald Automation Nightly Run
+         
+         **Status:** ${STATUS}
+         
+         **Environment:** ${ENV}
+         
+         **Execution Type:** ${EXECUTION_TYPE} 
+         
          **Run Link:** ${RUN_URL}
          EOF
          )
