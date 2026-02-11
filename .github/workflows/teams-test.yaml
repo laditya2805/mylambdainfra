@@ -32,7 +32,9 @@ jobs:
          **Execution Type:** ${EXECUTION_TYPE} \n
          **Run Link:** ${RUN_URL}"
 
+         PAYLOAD=$(jq -n --arg text "${MESSAGE}" '{text: $text}')
+
          curl -X POST \
            -H "Content-Type: application/json" \
-           -d "{\"text\": \"${MESSAGE}\"}" \
+           -d "$PAYLOAD" \
            "$URL"
