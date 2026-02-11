@@ -1,35 +1,76 @@
-name: Teams Webhook Test
+name: Lambda CI & Deployment
 
 on:
- workflow_dispatch:
- push:
-   branches:
-     - main
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+   - cron: '30 16 * * *' # Runs daily at midnight
+
+permissions:
+  contents: read
+  id-token: write
 
 jobs:
- test-teams:
-   runs-on: ubuntu-latest
+  deploy:
+    runs-on: ubuntu-latest
+   # if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
 
-   steps:
-     - name: Print runner info
-       run: uname -a
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
-     - name: Show variable length
-       run: |
-         echo "Length of webhook url:"
-         echo ${#TEAMS_WEBHOOK_URL}
-       env:
-         TEAMS_WEBHOOK_URL: ${{ secrets.TEAMS_WEBHOOK_URL }}
+      - name: Install dependencies
+        run: npm install
 
-     - name: Call Teams Webhook
-       run: |
+      - name: Build TypeScript
+        run: npm run build
+
+      - name: Zip Lambda function
+        run: |
+          cd dist
+          zip -r ../lambda.zip .
+          cd ..
+
+
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1  
+
+
+      - name: Deploy to Dev Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name gitcommitfunction \
+            --zip-file fileb://lambda.zip
+
+      - name: Deploy to QA Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name Emerald-on-prem-presign-s3-qa \
+            --zip-file fileb://lambda.zip
+
+      - name: Call Teams Webhook
+        if: always()
+        run: |
          URL="${{ secrets.TEAMS_WEBHOOK_URL }}"
          ENV="qa"
          EXECUTION_TYPE="Smoke"
          STATUS="${{ job.status }}"
          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-         MESSAGE="### Emerald Automation Nightly Run \n
+         MESSAGE="### Emerald Automation Run \n
          **Status:** ${STATUS} \n
          **Environment:** ${ENV} \n
          **Execution Type:** ${EXECUTION_TYPE} \n
